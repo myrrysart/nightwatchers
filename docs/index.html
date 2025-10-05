@@ -27,6 +27,7 @@
   .seat.status-in_use { background:#4c8bf5; border-color:#2d6adf; color:#fff; }
   /* Drawers */
   .drawer { position:fixed; left:0; right:0; bottom:0; background:#fff; border-top:3px solid #222; box-shadow:0 -4px 16px rgba(0,0,0,.18); transform:translateY(100%); transition:transform .25s ease; z-index:100; max-height:68dvh; display:flex; flex-direction:column; padding-bottom:env(safe-area-inset-bottom); }
+  .vv-managed.drawer { position:absolute; left:0; right:auto; bottom:auto; }
   .drawer.show { transform:translateY(0); }
   .drawer-header { display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:.75rem 1rem .45rem; }
   .drawer-header h2, .drawer-header h3 { margin:0; font-size:15px; font-weight:600; }
@@ -182,6 +183,67 @@ const togglePaint=document.getElementById('toggle-paint'); const paintInd=docume
 function updatePaintUI(){ if(paintMode){ togglePaint.textContent='Disable Paint'; togglePaint.classList.add('active'); paintInd.style.display='inline-block'; } else { togglePaint.textContent='Enable Paint'; togglePaint.classList.remove('active'); paintInd.style.display='none'; } }
 togglePaint.onclick=()=>{ paintMode=!paintMode; updatePaintUI(); if(paintMode) enablePaint(); else disablePaint(); };
 updatePaintUI();
+/* ===== VisualViewport Drawer Pinning (Android/iOS pinch zoom) ===== */
+(function(){
+  if(!window.visualViewport) return; // Browser without API; normal fixed works.
+  const drawers=["quick-drawer","full-drawer","actions-drawer"]; // ids
+  const overlay=document.getElementById('overlay');
+  const managedClass='vv-managed';
+  function apply(){
+    const vv=window.visualViewport;
+    // Use top-left anchoring to avoid scaling drift.
+    const scale=vv.scale || 1;
+    const left=vv.offsetLeft;
+    const top=vv.offsetTop;
+    const vh=vv.height; // layout viewport in CSS px at current scale
+    const docLeft = left + window.scrollX;
+    const docTop = top + window.scrollY;
+    drawers.forEach(id=>{
+      const el=document.getElementById(id);
+      if(!el) return;
+      // When shown, we reposition; when hidden we leave it off-screen via translateY.
+      if(!el.classList.contains('show')){
+        // Still need absolute anchoring so when it opens it is correct.
+        el.classList.add(managedClass);
+      } else {
+        el.classList.add(managedClass);
+        // Height may vary; we pin bottom inside visual viewport.
+        // Determine drawer's natural height (max capped by CSS).
+        const rect=el.getBoundingClientRect();
+        const elHeight=rect.height;
+        // Position so its bottom aligns with visual viewport bottom.
+        const targetTop = docTop + vh - elHeight;
+        el.style.position='absolute';
+        el.style.left = docLeft + 'px';
+        el.style.top = targetTop + 'px';
+        el.style.right='auto';
+        el.style.bottom='auto';
+        // Remove transform slide-in effect since we're manually placing.
+        el.style.transform='none';
+      }
+    });
+    if(overlay){
+      if(overlay.classList.contains('show')){
+        overlay.style.position='absolute';
+        overlay.style.left= (left + window.scrollX) + 'px';
+        overlay.style.top= (top + window.scrollY) + 'px';
+        overlay.style.width= vv.width + 'px';
+        overlay.style.height= vv.height + 'px';
+      } else {
+        overlay.removeAttribute('style');
+      }
+    }
+  }
+  visualViewport.addEventListener('resize', apply);
+  visualViewport.addEventListener('scroll', apply);
+  window.addEventListener('scroll', apply, {passive:true});
+  window.addEventListener('orientationchange', ()=> setTimeout(apply, 60));
+  // Hook into show/hide to re-run.
+  const origShow=window.showDrawer, origHide=window.hideDrawer;
+  if(typeof origShow==='function') window.showDrawer=function(which){ origShow(which); requestAnimationFrame(apply); };
+  if(typeof origHide==='function') window.hideDrawer=function(which){ origHide(which); requestAnimationFrame(apply); };
+  apply();
+})();
 /* ===== Init ===== */
 renderMap();
 </script>
