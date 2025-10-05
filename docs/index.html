@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Nightwatchers: The Game</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>
+  :root { --seat-size:46px; --seat-gap:4px; font-family:system-ui,Arial,sans-serif; }
+  body { margin:1rem; }
+  h1 { margin:0 0 .75rem; font-size:1.15rem; }
+  .toolbar { display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; margin:.25rem 0 .75rem; }
+  .toolbar select, .toolbar button { font-size:13px; padding:.45rem .65rem; }
+  #seatmap-root { display:flex; flex-direction:column; gap:50px; }
+  .cluster { display:grid; gap:34px; }
+  .row { display:grid; grid-template-rows:repeat(2,var(--seat-size)); grid-auto-flow:column; grid-auto-columns:var(--seat-size); column-gap:var(--seat-gap); position:relative; }
+  .row-label { position:absolute; left:-60px; top:50%; transform:translateY(-50%); font-weight:600; font-size:22px; color:#b4b4b4; user-select:none; pointer-events:none; }
+  .row-label.right { left:auto; right:-60px; }
+  .seat, .gap { width:var(--seat-size); height:var(--seat-size); box-sizing:border-box; }
+  .seat { background:#ececec; border:2px solid #777; border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:600; color:#222; cursor:pointer; position:relative; transition:background .12s,border-color .12s,color .12s, transform .1s; touch-action:manipulation; }
+  .seat:active { transform:scale(.94); }
+  .gap { background:transparent; pointer-events:none; }
+  /* Status precedence: bugged > finished > leave > in_use */
+  .seat.status-bugged { background:#e53935; border-color:#b71c1c; color:#fff; }
+  .seat.status-finished { background:#4caf50; border-color:#2e7d32; color:#fff; }
+  .seat.status-leave { background:#ffbf3c; border-color:#d99900; color:#442c00; }
+  .seat.status-in_use { background:#4c8bf5; border-color:#2d6adf; color:#fff; }
+  /* Drawers */
+  .drawer { position:fixed; left:0; right:0; bottom:0; background:#fff; border-top:3px solid #222; box-shadow:0 -4px 16px rgba(0,0,0,.18); transform:translateY(100%); transition:transform .25s ease; z-index:100; max-height:68vh; display:flex; flex-direction:column; }
+  .drawer.show { transform:translateY(0); }
+  .drawer-header { display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:.75rem 1rem .45rem; }
+  .drawer-header h2, .drawer-header h3 { margin:0; font-size:15px; font-weight:600; }
+  .drawer-close { background:none; border:none; font-size:20px; cursor:pointer; line-height:1; padding:.25rem .4rem; }
+  /* Quick drawer flags */
+  #quick-drawer .flags { display:flex; gap:.55rem; flex-wrap:wrap; padding:.25rem 1rem 1rem; }
+  #quick-drawer button.flag { flex:1 1 calc(50% - .55rem); min-width:118px; padding:.55rem .4rem; font-size:13px; border:2px solid #bbb; background:#fafafa; border-radius:6px; cursor:pointer; font-weight:600; display:flex; align-items:center; justify-content:center; }
+  #quick-drawer button.flag.active { border-color:#222; box-shadow:0 0 0 2px #000 inset; }
+  #quick-drawer button.flag.bugged.active { background:#e53935; color:#fff; border-color:#b71c1c; }
+  #quick-drawer button.flag.finished.active { background:#4caf50; color:#fff; border-color:#2e7d32; }
+  #quick-drawer button.flag.leave.active { background:#ffbf3c; color:#442c00; border-color:#d99900; }
+  #quick-drawer button.flag.in_use.active { background:#4c8bf5; color:#fff; border-color:#2d6adf; }
+  #quick-drawer .hint { font-size:10px; color:#555; padding:0 1rem 1rem; }
+  /* Full editor */
+  #full-drawer { padding:0; }
+  #full-drawer .content { padding:0 1rem 1rem; overflow:auto; }
+  #full-drawer label { font-weight:600; font-size:12px; display:block; margin-top:.75rem; }
+  #full-drawer input[type=text], #full-drawer textarea { width:100%; font:inherit; padding:.45rem .55rem; margin-top:.35rem; border:1px solid #bbb; border-radius:5px; font-size:12px; }
+  #full-drawer textarea { resize:vertical; min-height:80px; }
+  #full-drawer .status-flags { display:flex; flex-wrap:wrap; gap:.45rem; margin-top:.35rem; }
+  #full-drawer .status-flags label { font-weight:500; display:flex; align-items:center; gap:4px; font-size:11px; background:#f3f3f3; border:1px solid #ccc; padding:.3rem .5rem; border-radius:4px; }
+  #full-drawer .note { font-size:10px; color:#666; margin-top:.6rem; }
+  #full-drawer .danger { margin-top:.8rem; }
+  #full-drawer button { padding:.5rem .8rem; font:inherit; cursor:pointer; border:1px solid #b00; background:#ffebeb; border-radius:5px; font-size:12px; }
+  /* Actions drawer */
+  #actions-drawer .content { padding:0 1rem 1rem; overflow:auto; }
+  #actions-drawer section { margin-top:.75rem; }
+  #actions-drawer h4 { margin:.8rem 0 .35rem; font-size:12px; letter-spacing:.5px; text-transform:uppercase; }
+  #actions-drawer textarea { width:100%; min-height:120px; font:12px/1.3 monospace; padding:.5rem .55rem; border:1px solid #bbb; border-radius:4px; resize:vertical; }
+  #actions-drawer button.inline { padding:.4rem .65rem; font:inherit; border:1px solid #555; background:#f4f4f4; border-radius:4px; cursor:pointer; font-size:12px; }
+  #actions-drawer .row { display:flex; gap:.45rem; flex-wrap:wrap; }
+  #actions-drawer .danger-btn { background:#ffecec; border-color:#c33; color:#900; }
+  #actions-drawer .mode-indicator { font-size:10px; margin-left:.4rem; padding:.1rem .45rem; background:#222; color:#fff; border-radius:10px; }
+  #actions-drawer .toggle-paint.active { background:#4c8bf5; color:#fff; border-color:#2d6adf; }
+  #overlay { position:fixed; inset:0; background:rgba(0,0,0,.32); opacity:0; pointer-events:none; transition:opacity .25s; z-index:90; }
+  #overlay.show { opacity:1; pointer-events:auto; }
+  @media (max-width:640px){ :root { --seat-size:42px; } .row-label, .row-label.right { font-size:18px; left:-48px; right:-48px; } #quick-drawer button.flag { min-width:46%; } }
+</style>
+</head>
+<body>
+<h1>Nightwatchers: The Game</h1>
+<div class="toolbar">
+  <label>Map: <select id="cluster-select"><option value="mapA">1</option><option value="mapB">2</option><option value="mapC">3</option></select></label>
+  <button id="actions-btn" type="button">Actions ▾</button>
+</div>
+<section id="map-wrapper"><div id="seatmap-root"></div></section>
+<div id="overlay"></div>
+<!-- Quick Status Drawer -->
+<div id="quick-drawer" class="drawer" aria-hidden="true">
+  <div class="drawer-header"><h3 id="quick-title">Seat</h3><button class="drawer-close" data-close="quick" aria-label="Close">×</button></div>
+  <div class="flags" id="quick-flags"></div>
+  <div class="hint">Tap toggles flag panel. Long press for full edit.</div>
+</div>
+<!-- Full Editor Drawer -->
+<div id="full-drawer" class="drawer" aria-hidden="true">
+  <div class="drawer-header"><h2 id="full-title">Seat</h2><button class="drawer-close" data-close="full" aria-label="Close">×</button></div>
+  <div class="content" id="editor-content"><em>Select a seat.</em></div>
+</div>
+<!-- Actions Drawer -->
+<div id="actions-drawer" class="drawer" aria-hidden="true">
+  <div class="drawer-header"><h3>Actions</h3><button class="drawer-close" data-close="actions" aria-label="Close">×</button></div>
+  <div class="content">
+    <section>
+      <h4>Paint Mode <span id="paint-ind" class="mode-indicator" style="display:none;">ACTIVE</span></h4>
+      <div class="row"><button id="toggle-paint" type="button" class="inline toggle-paint">Enable Paint</button><small style="align-self:center; font-size:10px; color:#555;">Drag across seats to set In Use.</small></div>
+    </section>
+    <section>
+      <h4>Export / Import</h4>
+      <div class="row" style="margin-bottom:.3rem;"><button id="do-export" type="button" class="inline">Export</button><button id="do-copy" type="button" class="inline">Copy</button><button id="do-load" type="button" class="inline">Load</button></div>
+      <textarea id="actions-json" spellcheck="false" placeholder="Export shows this map. Paste JSON then Load."></textarea>
+    </section>
+    <section>
+      <h4>Danger</h4>
+      <button id="do-clear" type="button" class="inline danger-btn">Clear Map</button>
+    </section>
+  </div>
+</div>
+<script>
+/* ===== Layout ===== */
+function baseRows(){ const rows=[]; for(let r=1;r<=6;r++) rows.push({label:'R'+r, layout:Array.from({length:28},(_,i)=>i+1)}); return rows; }
+const CLUSTER_LAYOUTS={ mapA:baseRows(), mapB:baseRows(), mapC:baseRows() };
+// Custom tweaks (unchanged)
+CLUSTER_LAYOUTS.mapC[0].layout=[{gap:true},1,2,{gap:true},{gap:true},3,4,{gap:true},{gap:true},5,6,{gap:true},{gap:true},7];
+CLUSTER_LAYOUTS.mapC[1].layout=[{gap:true},1,2,{gap:true},{gap:true},3,4,{gap:true},{gap:true},5,6,{gap:true},{gap:true},7];
+CLUSTER_LAYOUTS.mapC[2].layout=[{gap:true},{gap:true},1,{gap:true},{gap:true},2,3,{gap:true},{gap:true},4,5,{gap:true},{gap:true},6];
+CLUSTER_LAYOUTS.mapC[3].layout=[{gap:true},{gap:true},1,{gap:true},{gap:true},2,3,{gap:true},{gap:true},4,5,{gap:true},{gap:true},6];
+CLUSTER_LAYOUTS.mapC[4].layout=[{gap:true},{gap:true},1,{gap:true},{gap:true},2,3,{gap:true},{gap:true},4,5,{gap:true},{gap:true},6];
+CLUSTER_LAYOUTS.mapC[5].layout=[{gap:true}];
+CLUSTER_LAYOUTS.mapB[5].layout=[1,{gap:true},{gap:true},2,3,{gap:true},{gap:true},4,5,{gap:true},{gap:true},6,7,{gap:true},{gap:true},8,9,{gap:true},{gap:true},10,11,{gap:true},{gap:true},12,13];
+CLUSTER_LAYOUTS.mapB[4].layout=[1,{gap:true},{gap:true},2,3,{gap:true},{gap:true},4,5,{gap:true},{gap:true},6,7,{gap:true},{gap:true},8,9,{gap:true},{gap:true},10,11,{gap:true},{gap:true},12,13];
+CLUSTER_LAYOUTS.mapB[3].layout=[1,{gap:true},{gap:true},2,3,{gap:true},{gap:true},4,5,{gap:true},{gap:true},6,7,{gap:true},{gap:true},8,{gap:true},{gap:true},{gap:true},9,10,{gap:true},{gap:true},11,12];
+CLUSTER_LAYOUTS.mapB[2].layout=[1,{gap:true},{gap:true},2,3,{gap:true},{gap:true},4,5,{gap:true},{gap:true},6,7,{gap:true},{gap:true},8,9,{gap:true},{gap:true},10,11,{gap:true},{gap:true},12,13];
+CLUSTER_LAYOUTS.mapB[1].layout=[1,{gap:true},{gap:true},2,3,{gap:true},{gap:true},4,5,{gap:true},{gap:true},6,7,{gap:true},{gap:true},8,9,{gap:true},{gap:true},10,11,{gap:true},{gap:true},12,13];
+CLUSTER_LAYOUTS.mapB[0].layout=[1,{gap:true},{gap:true},2,3,{gap:true},{gap:true},4,5,{gap:true},{gap:true},6,7,{gap:true},{gap:true},8,{gap:true},{gap:true},{gap:true},9,10,{gap:true},{gap:true},11,12];
+CLUSTER_LAYOUTS.mapA[0].layout=[{gap:true},{gap:true},{gap:true},{gap:true},{gap:true},{gap:true},{gap:true},{gap:true},{gap:true},{gap:true},1,{gap:true},{gap:true},2,3,{gap:true},{gap:true},4,5,{gap:true},{gap:true},6,7,{gap:true},{gap:true},8,{gap:true},{gap:true},{gap:true},9,10,{gap:true},{gap:true},11];
+CLUSTER_LAYOUTS.mapA[1].layout=[{gap:true},{gap:true},{gap:true},{gap:true},{gap:true},{gap:true},{gap:true},{gap:true},{gap:true},{gap:true},1,{gap:true},{gap:true},2,{gap:true},{gap:true},{gap:true},{gap:true},{gap:true},{gap:true},{gap:true},{gap:true},{gap:true},{gap:true},{gap:true},{gap:true},3,{gap:true},{gap:true},4,5,{gap:true},{gap:true},6];
+CLUSTER_LAYOUTS.mapA[2].layout=[{gap:true},{gap:true},{gap:true},{gap:true},{gap:true},{gap:true},{gap:true},{gap:true},{gap:true},{gap:true},1,{gap:true},{gap:true},2,3,{gap:true},{gap:true},{gap:true},4,{gap:true},{gap:true},{gap:true},5,{gap:true},{gap:true},{gap:true},6,{gap:true},{gap:true},7,8,{gap:true},{gap:true},9];
+CLUSTER_LAYOUTS.mapA[3].layout=[{gap:true},{gap:true},{gap:true},{gap:true},{gap:true},{gap:true},{gap:true},{gap:true},{gap:true},{gap:true},1,{gap:true},{gap:true},2,3,{gap:true},{gap:true},4,5,{gap:true},{gap:true},6,7,{gap:true},{gap:true},8,{gap:true},{gap:true},{gap:true},9,10,{gap:true},{gap:true},11];
+CLUSTER_LAYOUTS.mapA[4].layout=[{gap:true},1,2,{gap:true},{gap:true},3,4,{gap:true},{gap:true},5,6,{gap:true},{gap:true},7,8,{gap:true},{gap:true},9,{gap:true},{gap:true},{gap:true},{gap:true},{gap:true},{gap:true},10,{gap:true},{gap:true},11,12,{gap:true},{gap:true},13,14,{gap:true},{gap:true},15,16,{gap:true},{gap:true},17,18,{gap:true},{gap:true},19,20,{gap:true},{gap:true},21];
+CLUSTER_LAYOUTS.mapA[5].layout=[{gap:true},1,2,{gap:true},{gap:true},3,4,{gap:true},{gap:true},5,6,{gap:true},{gap:true},7,8,{gap:true},{gap:true},9,{gap:true},{gap:true},{gap:true},{gap:true},{gap:true},{gap:true},10,{gap:true},{gap:true},11,12,{gap:true},{gap:true},13,14,{gap:true},{gap:true},15,16,{gap:true},{gap:true},17,18,{gap:true},{gap:true},19,20,{gap:true},{gap:true},21];
+/* ===== State (in-memory only) ===== */
+let activeMapKey='mapA';
+const MAP_STATES={ mapA:{}, mapB:{}, mapC:{} };
+let state=MAP_STATES[activeMapKey];
+function blankSeat(id){ return { id, name:'', project:'', notes:'', flags:{ in_use:false, leave:false, finished:false, bugged:false } }; }
+function highestStatus(f){ return f.bugged?'bugged':(f.finished?'finished':(f.leave?'leave':(f.in_use?'in_use':''))); }
+function seatEl(id){ return document.querySelector('[data-seat-id="'+id+'"]'); }
+function updateSeatVisual(id){ const d=state[id]; const el=seatEl(id); if(!el||!d) return; const hs=highestStatus(d.flags); el.className='seat'+(hs?' status-'+hs:''); }
+function renderMap(){ const root=document.getElementById('seatmap-root'); root.innerHTML=''; const rows=[...CLUSTER_LAYOUTS[activeMapKey]].reverse(); const cluster=document.createElement('div'); cluster.className='cluster'; rows.forEach(row=>{ const rowEl=document.createElement('div'); rowEl.className='row'; rowEl.dataset.row=row.label; const left=document.createElement('div'); left.className='row-label'; left.textContent=row.label; rowEl.appendChild(left); const right=left.cloneNode(true); right.classList.add('right'); rowEl.appendChild(right); row.layout.forEach((item,i)=>{ const gridRow=(i%2)+1; if(item&&item.gap){ const gap=document.createElement('div'); gap.className='gap'; gap.style.gridRow=String(gridRow); if(item.span) gap.style.gridColumn='span '+item.span; rowEl.appendChild(gap); return; } let label,id; if(typeof item==='number'){ label=item; id=row.label+'-'+item; } else if(typeof item==='string'){ label=item; id=row.label+'-'+item.replace(/\s+/g,'_'); } else if(item&&typeof item==='object'){ label=item.label||item.id||'?'; id=item.id||row.label+'-i'+i; } else return; const seatData=state[id]||blankSeat(id); if(!state[id]) state[id]=seatData; const seat=document.createElement('div'); const statusClass=highestStatus(seatData.flags); seat.className='seat'+(statusClass?' status-'+statusClass:''); seat.textContent=label; seat.style.gridRow=String(gridRow); seat.dataset.seatId=id; attachSeatInteractions(seat,id); rowEl.appendChild(seat); }); cluster.appendChild(rowEl); }); root.appendChild(cluster); }
+/* ===== Interaction ===== */
+const LONG_PRESS_MS=500;
+function attachSeatInteractions(el,id){ let timer=null,long=false; const clear=()=>{ if(timer){ clearTimeout(timer); timer=null; } }; el.addEventListener('pointerdown',e=>{ if(paintMode) return; long=false; timer=setTimeout(()=>{ long=true; openFullEditor(id); },LONG_PRESS_MS); }); ['pointerup','pointerleave','pointercancel'].forEach(evt=> el.addEventListener(evt,e=>{ if(paintMode) return; if(!timer) return; clear(); if(!long) openQuickStatus(id); })); }
+/* ===== Quick Status Drawer ===== */
+const FLAG_ORDER=['in_use','leave','finished','bugged'];
+const FLAG_LABELS={ in_use:'In Use', leave:'Leave', finished:'Finished', bugged:'Bugged' };
+function openQuickStatus(id){ const seat=state[id]||(state[id]=blankSeat(id)); document.getElementById('quick-title').textContent='Seat '+id; const wrap=document.getElementById('quick-flags'); wrap.innerHTML=''; FLAG_ORDER.forEach(flag=>{ const btn=document.createElement('button'); btn.type='button'; btn.className='flag '+flag+(seat.flags[flag]?' active':''); btn.textContent=FLAG_LABELS[flag]; btn.addEventListener('click',()=>{ seat.flags[flag]=!seat.flags[flag]; updateSeatVisual(id); openQuickStatus(id); }); wrap.appendChild(btn); }); showDrawer('quick'); }
+/* ===== Full Editor ===== */
+function escapeHTML(s){ return s.replace(/[&<>]/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[ch])); }
+function escapeAttr(s){ return escapeHTML(s).replace(/"/g,'&quot;'); }
+function openFullEditor(id){ const seat=state[id]||(state[id]=blankSeat(id)); document.getElementById('full-title').textContent='Seat '+id; const c=document.getElementById('editor-content'); c.innerHTML=`<label>Name<input id="f-name" type="text" value="${escapeAttr(seat.name)}" autocomplete="off"></label><label>Project<input id="f-project" type="text" value="${escapeAttr(seat.project)}" autocomplete="off"></label><label>Notes<textarea id="f-notes" rows="4">${escapeHTML(seat.notes)}</textarea></label><label>Status Flags</label><div class="status-flags">${FLAG_ORDER.map(f=>`<label>${FLAG_LABELS[f]} <input type="checkbox" data-flag="${f}" ${seat.flags[f]?'checked':''}></label>`).join('')}</div><div class="note">Changes are instant (not persisted on reload).</div><div class="danger"><button type="button" id="clear-seat">Clear Seat</button></div>`; const nameI=document.getElementById('f-name'); const projI=document.getElementById('f-project'); const notesA=document.getElementById('f-notes'); nameI.addEventListener('input',()=>{ seat.name=nameI.value.trim(); updateSeatVisual(id); }); projI.addEventListener('input',()=>{ seat.project=projI.value.trim(); updateSeatVisual(id); }); let t; notesA.addEventListener('input',()=>{ clearTimeout(t); t=setTimeout(()=>{ seat.notes=notesA.value; },120); }); c.querySelectorAll('[data-flag]').forEach(cb=> cb.addEventListener('change',e=>{ const f=e.target.getAttribute('data-flag'); seat.flags[f]=e.target.checked; updateSeatVisual(id); })); document.getElementById('clear-seat').onclick=()=>{ delete state[id]; renderMap(); hideDrawer('full'); hideDrawer('quick'); }; showDrawer('full'); }
+/* ===== Export / Import ===== */
+function exportJSON(){ return JSON.stringify(state,null,2); }
+function importData(str){ try { const obj=JSON.parse(str); if(obj && typeof obj==='object'){ MAP_STATES[activeMapKey]=obj; state=MAP_STATES[activeMapKey]; renderMap(); } } catch(e){ alert('Import failed: '+e.message); } }
+/* ===== Drawers ===== */
+function showDrawer(which){ const o=document.getElementById('overlay'); o.classList.add('show'); document.getElementById(which+'-drawer').classList.add('show'); }
+function hideDrawer(which){ const o=document.getElementById('overlay'); const el=document.getElementById(which+'-drawer'); if(el) el.classList.remove('show'); if(!document.querySelector('.drawer.show')) o.classList.remove('show'); }
+Array.from(document.querySelectorAll('.drawer-close')).forEach(b=> b.addEventListener('click',()=> hideDrawer(b.dataset.close)));
+const overlay=document.getElementById('overlay'); overlay.addEventListener('click',()=>{ ['quick','full','actions'].forEach(hideDrawer); });
+window.addEventListener('keydown',e=>{ if(e.key==='Escape'){ ['quick','full','actions'].forEach(hideDrawer); } });
+/* ===== Paint Mode ===== */
+let paintMode=false, painting=false, paintSetTo=true;
+function setSeatInUse(id,val){ const seat=state[id]||(state[id]=blankSeat(id)); seat.flags.in_use=val; updateSeatVisual(id); }
+function paintPointerDown(e){ const t=e.target.closest('.seat'); if(!t) return; painting=true; const id=t.dataset.seatId; const seat=state[id]||(state[id]=blankSeat(id)); paintSetTo=!seat.flags.in_use; setSeatInUse(id,paintSetTo); e.preventDefault(); }
+function paintPointerOver(e){ if(!painting) return; const t=e.target.closest('.seat'); if(!t) return; setSeatInUse(t.dataset.seatId,paintSetTo); }
+function paintPointerUp(){ painting=false; }
+function enablePaint(){ const root=document.getElementById('seatmap-root'); root.addEventListener('pointerdown',paintPointerDown); root.addEventListener('pointerover',paintPointerOver); root.addEventListener('pointerup',paintPointerUp); root.addEventListener('pointerleave',paintPointerUp); }
+function disablePaint(){ const root=document.getElementById('seatmap-root'); root.removeEventListener('pointerdown',paintPointerDown); root.removeEventListener('pointerover',paintPointerOver); root.removeEventListener('pointerup',paintPointerUp); root.removeEventListener('pointerleave',paintPointerUp); }
+/* ===== Events ===== */
+const selectEl=document.getElementById('cluster-select');
+selectEl.addEventListener('change',()=>{ activeMapKey=selectEl.value; state=MAP_STATES[activeMapKey]; renderMap(); hideDrawer('quick'); hideDrawer('full'); });
+// Actions button
+document.getElementById('actions-btn').onclick=()=>{ hideDrawer('quick'); hideDrawer('full'); showDrawer('actions'); };
+// Actions drawer controls
+const actionsTxt=document.getElementById('actions-json');
+function ensureExport(){ actionsTxt.value=exportJSON(); }
+const doExport=document.getElementById('do-export'); doExport.onclick=()=> ensureExport();
+const doCopy=document.getElementById('do-copy'); doCopy.onclick=()=>{ if(!actionsTxt.value) ensureExport(); navigator.clipboard.writeText(actionsTxt.value).then(()=>{ doCopy.textContent='Copied'; setTimeout(()=>doCopy.textContent='Copy',800); }); };
+const doLoad=document.getElementById('do-load'); doLoad.onclick=()=>{ if(actionsTxt.value.trim() && confirm('Overwrite current map from JSON?')) importData(actionsTxt.value); };
+const doClear=document.getElementById('do-clear'); doClear.onclick=()=>{ if(confirm('Clear ALL seats for this map?')){ MAP_STATES[activeMapKey]={}; state=MAP_STATES[activeMapKey]; renderMap(); hideDrawer('quick'); hideDrawer('full'); hideDrawer('actions'); } };
+// Paint toggle
+const togglePaint=document.getElementById('toggle-paint'); const paintInd=document.getElementById('paint-ind');
+function updatePaintUI(){ if(paintMode){ togglePaint.textContent='Disable Paint'; togglePaint.classList.add('active'); paintInd.style.display='inline-block'; } else { togglePaint.textContent='Enable Paint'; togglePaint.classList.remove('active'); paintInd.style.display='none'; } }
+togglePaint.onclick=()=>{ paintMode=!paintMode; updatePaintUI(); if(paintMode) enablePaint(); else disablePaint(); };
+updatePaintUI();
+/* ===== Init ===== */
+renderMap();
+</script>
+</body>
+</html>
