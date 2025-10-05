@@ -189,46 +189,59 @@ updatePaintUI();
   const drawers=["quick-drawer","full-drawer","actions-drawer"]; // ids
   const overlay=document.getElementById('overlay');
   const managedClass='vv-managed';
+  function resetDrawer(el){
+    el.classList.remove(managedClass);
+    el.style.position='';
+    el.style.left='';
+    el.style.top='';
+    el.style.right='';
+    el.style.bottom='';
+    el.style.transform=''; // allow CSS translateY animation
+  }
+  function manageOpen(el, docLeft, docTop, vh){
+    el.classList.add(managedClass);
+    // Compute current height AFTER making sure transform removed (we keep animation only if scale==1)
+    const rect=el.getBoundingClientRect();
+    const elHeight=rect.height;
+    const targetTop = docTop + vh - elHeight;
+    el.style.position='absolute';
+    el.style.left = docLeft + 'px';
+    el.style.top = targetTop + 'px';
+    el.style.right='auto';
+    el.style.bottom='auto';
+    el.style.transform='none'; // override slide for accurate pinning
+  }
   function apply(){
     const vv=window.visualViewport;
-    // Use top-left anchoring to avoid scaling drift.
     const scale=vv.scale || 1;
-    const left=vv.offsetLeft;
-    const top=vv.offsetTop;
-    const vh=vv.height; // layout viewport in CSS px at current scale
-    const docLeft = left + window.scrollX;
-    const docTop = top + window.scrollY;
+    const needsManage = scale !== 1 || vv.offsetTop !== 0 || vv.offsetLeft !== 0; // only intervene when visual viewport differs
+    const docLeft = vv.offsetLeft + window.scrollX;
+    const docTop = vv.offsetTop + window.scrollY;
+    const vh = vv.height;
     drawers.forEach(id=>{
       const el=document.getElementById(id);
       if(!el) return;
-      // When shown, we reposition; when hidden we leave it off-screen via translateY.
       if(!el.classList.contains('show')){
-        // Still need absolute anchoring so when it opens it is correct.
-        el.classList.add(managedClass);
+        // Hidden drawer: ensure original fixed + transform hiding works
+        resetDrawer(el);
+        return;
+      }
+      if(!needsManage){
+        // Open but no special viewport shift; keep default fixed behavior
+        resetDrawer(el);
       } else {
-        el.classList.add(managedClass);
-        // Height may vary; we pin bottom inside visual viewport.
-        // Determine drawer's natural height (max capped by CSS).
-        const rect=el.getBoundingClientRect();
-        const elHeight=rect.height;
-        // Position so its bottom aligns with visual viewport bottom.
-        const targetTop = docTop + vh - elHeight;
-        el.style.position='absolute';
-        el.style.left = docLeft + 'px';
-        el.style.top = targetTop + 'px';
-        el.style.right='auto';
-        el.style.bottom='auto';
-        // Remove transform slide-in effect since we're manually placing.
-        el.style.transform='none';
+        manageOpen(el, docLeft, docTop, vh);
       }
     });
     if(overlay){
-      if(overlay.classList.contains('show')){
+      if(!overlay.classList.contains('show')){
+        overlay.removeAttribute('style');
+      } else if(needsManage){
         overlay.style.position='absolute';
-        overlay.style.left= (left + window.scrollX) + 'px';
-        overlay.style.top= (top + window.scrollY) + 'px';
+        overlay.style.left= docLeft + 'px';
+        overlay.style.top= docTop + 'px';
         overlay.style.width= vv.width + 'px';
-        overlay.style.height= vv.height + 'px';
+        overlay.style.height= vh + 'px';
       } else {
         overlay.removeAttribute('style');
       }
@@ -237,8 +250,7 @@ updatePaintUI();
   visualViewport.addEventListener('resize', apply);
   visualViewport.addEventListener('scroll', apply);
   window.addEventListener('scroll', apply, {passive:true});
-  window.addEventListener('orientationchange', ()=> setTimeout(apply, 60));
-  // Hook into show/hide to re-run.
+  window.addEventListener('orientationchange', ()=> setTimeout(apply, 80));
   const origShow=window.showDrawer, origHide=window.hideDrawer;
   if(typeof origShow==='function') window.showDrawer=function(which){ origShow(which); requestAnimationFrame(apply); };
   if(typeof origHide==='function') window.hideDrawer=function(which){ origHide(which); requestAnimationFrame(apply); };
